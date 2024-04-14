@@ -99,7 +99,7 @@ print(f"Project: {project_definition}")
 if project_definition == 'Test Project 1':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook.xlsx'
-  masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.xlsx'
+  masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
 elif project_definition == 'Test Project 2':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = ''
@@ -427,7 +427,7 @@ def apply_masking(data_extract, var_file, relative_path, filename, full_director
     print("-------------------------------------------------------------------------------------------------------------------------------------")
     print(f'Absolute file path: {i}')
     print(f'Schema: {var_file}')
-    new_df = df_mask_def_values[df_mask_def_values['Table'] == var_file]
+    newdf = df_mask_def_values[df_mask_def_values['Table'] == var_file]
     mask_attr = newdf.Attribute.to_list()
     print(f"Attributes for masking: {mask_attr}\n")
     if len(mask_attr) == 0:
@@ -439,11 +439,11 @@ def apply_masking(data_extract, var_file, relative_path, filename, full_director
         print(f'Masked Attribute: {f}')
 
         masking_rule_series = df_mask_def_values[df_mask_def_values['Attribute'] == f]['Masking Rule']
-        ref_integrity_series = df_mask_def_values[df_mask_def_values['Attribute'] == f]['Ref_integrity']
+        ref_integrity_series = df_mask_def_values[df_mask_def_values['Attribute'] == f]['Ref Integrity']
         mask_rule = masking_rule_series.iloc[0]
         print(f'Masking Rule: {mask_rule}')
         ref_integrity = ref_integrity_series.iloc[0]
-        print(f'Red Integrity: {ref_integrity}\n')
+        print(f'Ref Integrity: {ref_integrity}\n')
         data_extract[f] = mask_dataframe(data_extract, f, 10, mask_rule, ref_integrity)
         dataframes.append(data_extract)
 
