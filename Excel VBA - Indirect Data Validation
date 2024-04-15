@@ -22,7 +22,7 @@ Private Sub Workbook_Open()
             ' Create the named range
             Dim rangeString As String
             rangeString = "=" & "'" & mappingSheet.Name & "'" & "!" & "$" & mappingSheet.Cells(2, i).Address(RowAbsolute:=True, ColumnAbsolute:=False) & ":" & "$" & mappingSheet.Cells(lastRow, i).Address(RowAbsolute:=True, ColumnAbsolute:=False)
-            ThisWorkbook.Names.Add Name:=Replace(header, ".csv", ""), RefersTo:=rangeString
+            ThisWorkbook.Names.Add Name:=header, RefersTo:=rangeString
         End If
     Next i
     
