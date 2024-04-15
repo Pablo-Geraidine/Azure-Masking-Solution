@@ -19,6 +19,9 @@ from datetime import datetime
 from faker import Faker
 import shutil
 from shutil import copyfile
+from openpyxl import load_workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.worksheet.datavalidation import DataValidation
 
 # COMMAND ----------
 
@@ -64,19 +67,19 @@ mount_point_path = '/dbfs/mnt/masking_config/Test Project 1/'
 if project_definition == 'Test Project 1':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook - blank -macro.xlsm'
-  masking_rules_location_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook - blank.xlsx'
+  #masking_rules_location_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook - blank.xlsx'
   new_excel_path = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook Modified.xlsm'
-  new_excel_path_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook Modified.xlsx'
+  #new_excel_path_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook Modified.xlsx'
   local_path = "/tmp/Configurable Masking Rulebook Modified.xlsm"
   #copyfile(masking_rules_location, new_excel_path)
-  masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
+  #masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
 elif project_definition == 'Test Project 2':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = ''
   masking_dictionary_location = ''
 
 Masking_definition_file = masking_rules_location
-mask_map_table_path = masking_dictionary_location
+#mask_map_table_path = masking_dictionary_location
 
 # COMMAND ----------
 
@@ -113,194 +116,99 @@ print(input_file_locations)
 
 # COMMAND ----------
 
-# Initialize Spark session
-spark = SparkSession.builder.appName("Dataframe Column Names").getOrCreate()
+mount_point_path = input_mount_point_name + '/' + read_directory_path
+print(mount_point_path)
 
-# Base path for the mount point
-mount_point_path = input_mount_point_name
+# COMMAND ----------
 
-# List all files in the mount point
-file_paths = dbutils.fs.ls(mount_point_path)
-valid_files = [file.name for file in file_paths if file.name.endswith(('.csv', '.parquet'))]
-
-# Dictionary to hold filenames and their columns
-#long_dict = {}
 files_columns_dict = {}
-#list_of_dicts = []
-# Try to create a DataFrame from each file and collect column names
-for file in valid_files:
-    try:
-        path = os.path.join(mount_point_path, file)
-        df = None
-        if file.endswith('.csv'):
-            df = spark.read.csv(path, header=True, inferSchema=True)
-        elif file.endswith('.parquet'):
-            df = spark.read.parquet(path)
-        # If a DataFrame was successfully created, store the column names
-        if df:
+file_abs_paths = os.path.abspath(input_file_locations)
+all_files = []
+for dirpath, dirnames, filenames in os.walk(file_abs_paths):
+    # Walk through all files under the input_file_location
+    for file in filenames:
+        print(file)
+        try:
+            if file.endswith(('.csv', '.parquet')):
+                path = os.path.join(dirpath, file)
+                print(path)
+                df = None
+            if file.endswith('.csv'):
+                df = pd.read_csv(path)
+
+            elif file.endswith('.parquet'):
+                df = pd.read_parquet(path)
+
             files_columns_dict[file] = df.columns
-            #long_dict.append(files_columns_dict)
-        #display(df)
-        print(files_columns_dict)
-        #files_columns_dict_df = pd.DataFrame(files_columns_dict)
-        #display(files_columns_dict_df)
-        #list_of_dicts.append(files_columns_dict)
-    except Exception as e:
-        print(f"Could not process {file}: {e}")
+                
+        except Exception as e:
+            print(f"Could not process {path}: {e}")
+            pass
+
 validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
 display(validation_list)
 
-# COMMAND ----------
 
-list_of_dicts_df = pd.DataFrame(list_of_dicts)
-display(list_of_dicts_df)
 
 # COMMAND ----------
 
+# Create a dictionary to map modified column names bacl to their original colun names - to be used to revert column names eventually
+original_to_modified = {name: name.replace(' ', '_').replace('-', '_') for name in validation_list.columns}
+
+# Remove whitespaces and dashes from the filenames so that VBA macros can still work
+validation_list.columns = validation_list.columns.str.replace(' |-', '_', regex=True)
+for column in validation_list.columns:
+    print(column)
+for i in original_to_modified:
+    print(original_to_modified[i])
+
+# COMMAND ----------
+
+# Load workbook
 copyfile(masking_rules_location, local_path)
 wb = load_workbook(local_path, keep_vba=True)
+file_mapping_sheet = wb['file mapping']
+sheet1 = wb['Masking Definition']
 
-#validation_list.to_excel(local_path, engine='openpyxl', sheet_name='file mapping', index=False)
+# Clear existing data in 'file mapping'
+for row in file_mapping_sheet.iter_rows(min_row=1, max_row=file_mapping_sheet.max_row, min_col=1, max_col=file_mapping_sheet.max_column):
+    for cell in row:
+        cell.value = None
 
-if 'file mapping' in wb.sheetnames:
-    wb.remove(wb['file mapping'])
+# Write validation_list dataframe to 'file mapping'
+for r_idx, row in enumerate(dataframe_to_rows(validation_list, index=False, header=True), start=1):
+    for c_idx, value in enumerate(row, start=1):
+        file_mapping_sheet.cell(row=r_idx, column=c_idx, value=value)
 
-with pd.ExcelWriter(local_path, engine='openpyxl') as writer:
-    writer.book = wb
+# Create Data Validation for sheet1. Formula: Reference first row in 'file mapping' sheet
+dv = DataValidation(type='list', formula1="'file mapping'!$1:$1", showDropDown=False)
+sheet1.add_data_validation(dv)
 
-    # Your dataframe to be added (I'm using validation_list as a placeholder for your actual DataFrame)
-    validation_list.to_excel(writer, sheet_name='file mapping', index=False)
+# Apply data validation to column A in sheet1
+for row in range(1, sheet1.max_row + 1):
+    dv.add(sheet1.cell(row=row, column=1))
+    #sheet1.cell(row=row, column=3).value=f'=IF(ISBLANK(A{row}), "", A{row})'
 
-
-copyfile(local_path, new_excel_path)
-
-# COMMAND ----------
-
-masking_rules_location_no_macro
-
-copyfile(masking_rules_location, local_path)
-wb = load_workbook(local_path)
-
-#validation_list.to_excel(local_path, engine='openpyxl', sheet_name='file mapping', index=False)
-
-if 'file mapping' in wb.sheetnames:
-    wb.remove(wb['file mapping'])
-
-with pd.ExcelWriter(local_path, engine='openpyxl') as writer:
-    writer.book = wb
-
-    # Your dataframe to be added (I'm using validation_list as a placeholder for your actual DataFrame)
-    validation_list.to_excel(writer, sheet_name='file mapping', index=False)
-
-
-copyfile(local_path, new_excel_path_no_macro)
-
-# COMMAND ----------
-
-copyfile(masking_rules_location, local_path)
-wb = load_workbook(local_path, keep_vba=True)
-
-#validation_list.to_excel(local_path, engine='openpyxl', sheet_name='file mapping', index=False)
-
-if 'file mapping' in wb.sheetnames:
-    wb.remove(wb['file mapping'])
-
-with pd.ExcelWriter(local_path, engine='openpyxl') as writer:
-    writer.book = wb
-
-    # Your dataframe to be added (I'm using validation_list as a placeholder for your actual DataFrame)
-    validation_list.to_excel(writer, sheet_name='file mapping', index=False)
-
-
-copyfile(local_path, new_excel_path)
-
-# COMMAND ----------
-
-excel_path = Masking_definition_file
-#rulebook_df = pd.read_excel(excel_path, sheet_name=0) # Assuming the first sheet is the one we need
-#display(rulebook_df)
-
-# COMMAND ----------
-
-from openpyxl import load_workbook
-from openpyxl.worksheet.datavalidation import DataValidation
-import shutil
-
-# Assuming the rest of the code from the previous snippet has run and files_columns_dict is populated
-
-# Load the workbook and select the active sheet
-wb = load_workbook(excel_path)
-sheet = wb.active
-
-# Create a data validation object for column 'A' (Table names)
-dv_tables = DataValidation(type="list", formula1='"{}"'.format(','.join(files_columns_dict.keys())), showDropDown=True)
-sheet.add_data_validation(dv_tables)
-
-# Add the validation to all the cells in column 'A' that might be used
-for row in range(2, sheet.max_row + 1):  # Assuming row 1 is the header
-    dv_tables.add(sheet.cell(row=row, column=1))
-
-# Now we set up the data validation for column 'B' (Attributes)
-# Note: True dependent dropdowns cannot be created directly via openpyxl, because they require INDIRECT formula,
-# which is not preserved when saving the workbook with openpyxl. 
-# We will create a validation for each cell in column B based on corresponding file in column A
-for row in range(2, sheet.max_row + 1):
-    file_name_cell = 'A{}'.format(row)
-    dv_attributes = DataValidation(type="list", formula1='"{}"'.format(','.join(files_columns_dict.get(sheet[file_name_cell].value, []))), showDropDown=True)
-    sheet.add_data_validation(dv_attributes)
-    dv_attributes.add(sheet.cell(row=row, column=2))
-
-# Save the workbook with a new name
-#new_excel_path = os.path.join(mount_point_path, "Configurable Masking Rulebook Modified.xlsx")
-
-
-# Save the workbook to the local file system of the driver node
 wb.save(local_path)
-
-# Use dbutils to copy the file from the local file system to the mount point
-copyfile(local_path, new_excel_path)
-
-# ORemove the temporary local file after copying
-os.remove(local_path)
-
-
-#wb.save(new_excel_path)
-
-# COMMAND ----------
-
-from openpyxl.utils import get_column_letter
-
-# Create a new sheet for the Table-Attribute mapping
-wb.create_sheet(title="Table_Attribute_Mapping")
-mapping_sheet = wb["Table_Attribute_Mapping"]
-
-# Populate the mapping sheet with table names and attributes
-for col_index, (table_name, attributes) in enumerate(files_columns_dict.items(), start=1):
-    # Set the table name as the header of the column
-    mapping_sheet.cell(row=1, column=col_index).value = table_name
-
-    # List attributes below the table name
-    for row_index, attribute in enumerate(attributes, start=2):
-        mapping_sheet.cell(row=row_index, column=col_index).value = attribute
-
-# The rest of your script for setting data validation in column A
-# ... (your existing code)
-
-# Now, instead of creating the validation in column B with openpyxl,
-# you leave the column B validation blank and will manually add it in Excel
-
-# Save the workbook to a temporary file
-#with local_path.NamedTemporaryFile() as tmp:
-wb.save(local_path)
-#tmp.seek(0)
-
-    # Now upload the file from local to DBFS
-#try:
-#    dbutils.fs.cp(f'file:{tmp.name}', new_excel_path)
-#except Exception as e:
-#    print(f"Error while saving to DBFS: {e}")
 copyfile(local_path, new_excel_path)
 
 # COMMAND ----------
 
+#Calculate and display total script runtime
+end_runtime = time.time()
+runtime = end_runtime - start_runtime
 
+def seconds_to_time(seconds):
+    int_seconds = int(seconds)
+
+    # Calculate hours, minutes, and seconds
+    hours = int_seconds // 3600
+    int_seconds %= 3600
+    minutes = int_seconds // 60
+    remaining_seconds = int_seconds % 60
+    fraction_seconds = seconds - int(seconds)
+
+    formatted_time = "{:02}h:{:02}m:{:02}.{:03}s".format(hours, minutes, remaining_seconds, int(fraction_seconds*1000))
+
+    return formatted_time
+print(f'Total Runtime: {seconds_to_time(runtime)}')
