@@ -201,47 +201,79 @@ display(validation_list)
 '''
 # COMMAND ----------
 
-# Dictionary to store columns for each directory/subdirectory
+# Dictionary to store columns for each directory/subdirectory or individual file
 files_columns_dict = {}
 # Dictionary to log errors for directories with multiple unique schemas
 error_handling = {}
+# Temporary storage for schema comparison
+temp_schema_storage = {}
 
 file_abs_paths = os.path.abspath(input_file_locations)
 
-def aggregate_directory_columns(path):
-    """ Helper function to read all parquet files within a directory and return column names """
-    parquet_files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith('.parquet')]
-    if parquet_files:
-        df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+def aggregate_directory_columns(path, file_type):
+    """ Helper function to read all files of a given type within a directory and return column names """
+    files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith(file_type)]
+    if files:
+        if file_type == '.csv':
+            df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+        elif file_type == '.parquet':
+            df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
         return df.columns.tolist()
     return None
 
 # Walk through all files and directories under the input_file_location
 for dirpath, dirnames, filenames in os.walk(file_abs_paths):
+    parent_dir_name = os.path.basename(dirpath)
+    # Initialize parent directory schema storage
+    if parent_dir_name not in temp_schema_storage:
+        temp_schema_storage[parent_dir_name] = {}
+
     # Process subdirectories within each directory
     for dirname in dirnames:
         directory_path = os.path.join(dirpath, dirname)
-        subdirectory_key = os.path.join(os.path.basename(dirpath), dirname)
-        try:
-            columns = aggregate_directory_columns(directory_path)
-            if columns:
-                if subdirectory_key in files_columns_dict:
-                    # Check for schema consistency within the subdirectory
-                    if files_columns_dict[subdirectory_key] != columns:
-                        # Log error if current schema doesn't match previous entries
-                        if subdirectory_key not in error_handling:
-                            error_handling[subdirectory_key] = [files_columns_dict[subdirectory_key], columns]
+        subdirectory_key = os.path.join(parent_dir_name, dirname)
+        # Process each file type separately to handle possible different schemas
+        for file_type in ['.csv', '.parquet']:
+            try:
+                columns = aggregate_directory_columns(directory_path, file_type)
+                if columns:
+                    if subdirectory_key in temp_schema_storage[parent_dir_name]:
+                        # Check for schema consistency within the subdirectory
+                        if temp_schema_storage[parent_dir_name][subdirectory_key] != columns:
+                            error_handling[subdirectory_key] = columns
+                        # Compare with other schemas in the same parent directory
+                        all_schemas = set(tuple(schema) for schema in temp_schema_storage[parent_dir_name].values())
+                        if len(all_schemas) > 1:
+                            # Schema differences found, store each subdirectory individually
+                            files_columns_dict[subdirectory_key] = columns
                         else:
-                            error_handling[subdirectory_key].append(columns)
-                    files_columns_dict[subdirectory_key] = columns  # Overwrite if mismatch for simplicity
-                else:
-                    files_columns_dict[subdirectory_key] = columns
+                            # All schemas the same so far, store under parent directory
+                            files_columns_dict[parent_dir_name] = columns
+                    else:
+                        temp_schema_storage[parent_dir_name][subdirectory_key] = columns
+            except Exception as e:
+                print(f"Could not process {file_type} files in directory {directory_path}: {e}")
+
+    # Process individual files within the current dirpath
+    for file in filenames:
+        try:
+            path = os.path.join(dirpath, file)
+            df = None
+            if file.endswith('.csv'):
+                df = pd.read_csv(path)
+            elif file.endswith('.parquet'):
+                df = pd.read_parquet(path)
+
+            if df is not None:
+                file_key = os.path.join(parent_dir_name, file)
+                files_columns_dict[file_key] = df.columns.tolist()
+
         except Exception as e:
-            print(f"Could not process directory {directory_path}: {e}")
+            print(f"Could not process file {path}: {e}")
 
 # Print errors if any
 if error_handling:
-    print("Schema mismatches found in the following directories:")
+    print("Schema mismatches found in the following directories/files:")
     for key, value in error_handling.items():
         print(f"{key}: {value}")
 
