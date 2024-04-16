@@ -121,6 +121,7 @@ print(mount_point_path)
 
 # COMMAND ----------
 
+'''
 files_columns_dict = {}
 file_abs_paths = os.path.abspath(input_file_locations)
 all_files = []
@@ -148,6 +149,56 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
 validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
 display(validation_list)
 
+'''
+
+# COMMAND ----------
+
+import os
+import pandas as pd
+
+files_columns_dict = {}
+file_abs_paths = os.path.abspath(input_file_locations)
+
+# Walk through all files and directories under the input_file_location
+for dirpath, dirnames, filenames in os.walk(file_abs_paths):
+    # Process each directory of files
+    for dirname in dirnames:
+        directory_path = os.path.join(dirpath, dirname)
+        try:
+            # Attempt to read all CSV files in the directory into a DataFrame
+            csv_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if f.endswith('.csv')]
+            if csv_files:
+                df = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True)
+                files_columns_dict[dirname] = df.columns.tolist()
+
+            # Attempt to read all Parquet files in the directory into a DataFrame
+            parquet_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if f.endswith('.parquet')]
+            if parquet_files:
+                df = pd.read_parquet(directory_path)  # Reading from a directory directly
+                files_columns_dict[dirname] = df.columns.tolist()
+
+        except Exception as e:
+            print(f"Could not process directory {directory_path}: {e}")
+
+    # Process individual files within the current dirpath
+    for file in filenames:
+        try:
+            path = os.path.join(dirpath, file)
+            df = None
+            if file.endswith('.csv'):
+                df = pd.read_csv(path)
+            elif file.endswith('.parquet'):
+                df = pd.read_parquet(path)
+
+            if df is not None:
+                files_columns_dict[file] = df.columns.tolist()
+
+        except Exception as e:
+            print(f"Could not process file {path}: {e}")
+
+# Convert the dictionary to a DataFrame for better visualization
+validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
+display(validation_list)
 
 
 # COMMAND ----------
