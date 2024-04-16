@@ -201,12 +201,9 @@ display(validation_list)
 '''
 # COMMAND ----------
 
-# Dictionary to store columns for each directory/subdirectory or individual file
+# Separate dictionaries for directory and file schema mappings
+resource_set_columns_dict = {}
 files_columns_dict = {}
-# Dictionary to log errors for directories with multiple unique schemas
-error_handling = {}
-# Temporary storage for schema comparison
-temp_schema_storage = {}
 
 file_abs_paths = os.path.abspath(input_file_locations)
 
@@ -224,11 +221,8 @@ def aggregate_directory_columns(path, file_type):
 # Walk through all files and directories under the input_file_location
 for dirpath, dirnames, filenames in os.walk(file_abs_paths):
     parent_dir_name = os.path.basename(dirpath)
-    # Initialize parent directory schema storage
-    if parent_dir_name not in temp_schema_storage:
-        temp_schema_storage[parent_dir_name] = {}
 
-    # Process subdirectories within each directory
+    # Process directories for resource set
     for dirname in dirnames:
         directory_path = os.path.join(dirpath, dirname)
         subdirectory_key = os.path.join(parent_dir_name, dirname)
@@ -237,49 +231,36 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
             try:
                 columns = aggregate_directory_columns(directory_path, file_type)
                 if columns:
-                    if subdirectory_key in temp_schema_storage[parent_dir_name]:
-                        # Check for schema consistency within the subdirectory
-                        if temp_schema_storage[parent_dir_name][subdirectory_key] != columns:
-                            error_handling[subdirectory_key] = columns
-                        # Compare with other schemas in the same parent directory
-                        all_schemas = set(tuple(schema) for schema in temp_schema_storage[parent_dir_name].values())
-                        if len(all_schemas) > 1:
-                            # Schema differences found, store each subdirectory individually
-                            files_columns_dict[subdirectory_key] = columns
-                        else:
-                            # All schemas the same so far, store under parent directory
-                            files_columns_dict[parent_dir_name] = columns
-                    else:
-                        temp_schema_storage[parent_dir_name][subdirectory_key] = columns
+                    resource_set_columns_dict[subdirectory_key] = columns
             except Exception as e:
                 print(f"Could not process {file_type} files in directory {directory_path}: {e}")
 
-    # Process individual files within the current dirpath
+    # Process individual files
     for file in filenames:
+        file_path = os.path.join(dirpath, file)
         try:
-            path = os.path.join(dirpath, file)
             df = None
             if file.endswith('.csv'):
-                df = pd.read_csv(path)
+                df = pd.read_csv(file_path)
             elif file.endswith('.parquet'):
-                df = pd.read_parquet(path)
+                df = pd.read_parquet(file_path)
 
             if df is not None:
                 file_key = os.path.join(parent_dir_name, file)
                 files_columns_dict[file_key] = df.columns.tolist()
 
         except Exception as e:
-            print(f"Could not process file {path}: {e}")
+            print(f"Could not process file {file_path}: {e}")
 
-# Print errors if any
-if error_handling:
-    print("Schema mismatches found in the following directories/files:")
-    for key, value in error_handling.items():
-        print(f"{key}: {value}")
+# Convert dictionaries to DataFrames
+validation_list_resource_set = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in resource_set_columns_dict.items()]))
+validation_list_files = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
 
-# Convert the dictionary to a DataFrame for better visualization
-validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
-display(validation_list)
+# Display the DataFrames (for verification, you might want to remove or comment these lines in production)
+print("Validation List - Resource Set:")
+display(validation_list_resource_set)
+print("Validation List - Files:")
+display(validation_list_files)
 
 
 # COMMAND ----------
