@@ -153,8 +153,7 @@ display(validation_list)
 
 # COMMAND ----------
 
-import os
-import pandas as pd
+'''
 
 files_columns_dict = {}
 file_abs_paths = os.path.abspath(input_file_locations)
@@ -195,6 +194,56 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
 
         except Exception as e:
             print(f"Could not process file {path}: {e}")
+
+# Convert the dictionary to a DataFrame for better visualization
+validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
+display(validation_list)
+'''
+# COMMAND ----------
+
+# Dictionary to store columns for each directory/subdirectory
+files_columns_dict = {}
+# Dictionary to log errors for directories with multiple unique schemas
+error_handling = {}
+
+file_abs_paths = os.path.abspath(input_file_locations)
+
+def aggregate_directory_columns(path):
+    """ Helper function to read all parquet files within a directory and return column names """
+    parquet_files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith('.parquet')]
+    if parquet_files:
+        df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+        return df.columns.tolist()
+    return None
+
+# Walk through all files and directories under the input_file_location
+for dirpath, dirnames, filenames in os.walk(file_abs_paths):
+    # Process subdirectories within each directory
+    for dirname in dirnames:
+        directory_path = os.path.join(dirpath, dirname)
+        subdirectory_key = os.path.join(os.path.basename(dirpath), dirname)
+        try:
+            columns = aggregate_directory_columns(directory_path)
+            if columns:
+                if subdirectory_key in files_columns_dict:
+                    # Check for schema consistency within the subdirectory
+                    if files_columns_dict[subdirectory_key] != columns:
+                        # Log error if current schema doesn't match previous entries
+                        if subdirectory_key not in error_handling:
+                            error_handling[subdirectory_key] = [files_columns_dict[subdirectory_key], columns]
+                        else:
+                            error_handling[subdirectory_key].append(columns)
+                    files_columns_dict[subdirectory_key] = columns  # Overwrite if mismatch for simplicity
+                else:
+                    files_columns_dict[subdirectory_key] = columns
+        except Exception as e:
+            print(f"Could not process directory {directory_path}: {e}")
+
+# Print errors if any
+if error_handling:
+    print("Schema mismatches found in the following directories:")
+    for key, value in error_handling.items():
+        print(f"{key}: {value}")
 
 # Convert the dictionary to a DataFrame for better visualization
 validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
