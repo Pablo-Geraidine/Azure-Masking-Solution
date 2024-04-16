@@ -152,10 +152,7 @@ display(validation_list)
 '''
 
 # COMMAND ----------
-
-import os
-import pandas as pd
-
+'''
 files_columns_dict = {}
 file_abs_paths = os.path.abspath(input_file_locations)
 
@@ -195,6 +192,60 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
 
         except Exception as e:
             print(f"Could not process file {path}: {e}")
+
+# Convert the dictionary to a DataFrame for better visualization
+validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
+display(validation_list)
+'''
+# COMMAND ----------
+
+import os
+import pandas as pd
+
+def aggregate_directory_columns(path):
+    """ Helper function to read all parquet files within a directory and return column names """
+    parquet_files = [os.path.join(path, f) for f in os.listdir(path) if f.endswith('.parquet')]
+    if parquet_files:
+        df = pd.concat([pd.read_parquet(f) for f in parquet_files], ignore_index=True)
+        return df.columns.tolist()
+    return None
+
+files_columns_dict = {}
+file_abs_paths = os.path.abspath(input_file_locations)
+
+# Walk through all files and directories under the input_file_location
+for dirpath, dirnames, filenames in os.walk(file_abs_paths):
+    # Handle subdirectories
+    for dirname in dirnames:
+        directory_path = os.path.join(dirpath, dirname)
+        try:
+            columns = aggregate_directory_columns(directory_path)
+            if columns:
+                files_columns_dict[dirname] = columns
+                # Add or update the parent directory key
+                parent_dir_name = os.path.basename(dirpath)
+                if parent_dir_name in files_columns_dict:
+                    # Ensure consistency in schema if multiple subdirectories exist
+                    if files_columns_dict[parent_dir_name] != columns:
+                        print(f"Schema mismatch in subdirectories of {parent_dir_name}")
+                else:
+                    files_columns_dict[parent_dir_name] = columns
+        except Exception as e:
+            print(f"Could not process directory {directory_path}: {e}")
+
+# Handle individual files
+for file in filenames:
+    try:
+        path = os.path.join(dirpath, file)
+        if file.endswith('.csv') or file.endswith('.parquet'):
+            if file.endswith('.csv'):
+                df = pd.read_csv(path)
+            elif file.endswith('.parquet'):
+                df = pd.read_parquet(path)
+            if df is not None:
+                files_columns_dict[file] = df.columns.tolist()
+    except Exception as e:
+        print(f"Could not process file {path}: {e}")
 
 # Convert the dictionary to a DataFrame for better visualization
 validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
