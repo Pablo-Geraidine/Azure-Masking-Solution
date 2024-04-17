@@ -1,0 +1,29 @@
+Risk Review of Data Obfuscation Script for Development Environment
+1. Overview of the Script Functionality:
+The script functions to safely transfer and obfuscate production data to a development environment. It utilizes a configuration file in .xlsx format to define the source and destination of data, specifically targeting an ADLS2 storage account for both. The masking_input sheet within the configuration file specifies the files and their respective columns that require obfuscation before the transfer.
+
+2. Data Handling and Security:
+
+Source Validation: Ensures that the script exclusively accesses designated production data sources configured within the ADLS2 storage account, which is set to production-level security standards.
+Destination Constraints: Data is transferred to a designated development or non-production storage account with appropriate security settings albeit less stringent than production environments.
+Data Obfuscation: Critical columns specified in the masking_input sheet are obfuscated. The obfuscation involves replacing sensitive data with non-sensitive, non-production equivalents, thus mitigating the risk of sensitive data exposure.
+3. Compliance and Privacy:
+
+Compliance with Data Protection Regulations: The obfuscation process aids in complying with data protection regulations such as GDPR, HIPAA, etc., by ensuring that sensitive data is not exposed in less secure environments.
+Audit Trails: The script logs actions taken on data files, including details of obfuscated fields and destinations, which helps in maintaining transparency and accountability.
+4. Risk Mitigation Measures:
+
+Restricted Access: Access to the script and the configuration file is limited to authorized personnel only, reducing the risk of unauthorized data handling.
+Encryption in Transit and at Rest: Data is encrypted during transfer and in its rest state in both production and development environments, securing the data from unauthorized interception and access.
+Regular Updates and Patch Management: The script and its environment are regularly updated to protect against known vulnerabilities.
+5. Potential Risks and Their Management:
+
+Data Breach in Development Environment: Although development environments are less secure, the risk of sensitive data exposure is mitigated through robust obfuscation and encryption practices.
+Configuration Errors: Incorrect configuration (e.g., wrong file names or columns specified for masking) could lead to incomplete obfuscation. Mitigation includes rigorous validation checks before the script runs and regular audits of configuration files.
+Script Manipulation: Unauthorized changes to the script could introduce vulnerabilities. This risk is managed through strict version control, code review processes, and restricted access to script modification.
+6. Testing and Validation:
+
+Regular Testing: The script undergoes regular testing to ensure its functionality and security measures are effective. This includes testing the obfuscation methods and verifying the integrity of transferred data.
+Feedback Loop: Developers and testers provide feedback on the script’s performance and any potential security issues, leading to continuous improvement.
+7. Conclusion:
+This risk review concludes that the script incorporates adequate safeguards to minimize the risk of sensitive data exposure in the development environment. The combination of strict source and destination specifications, data obfuscation, encryption, and access controls aligns with best practices for data security and compliance.
