@@ -207,8 +207,6 @@ import pandas as pd
 # Separate dictionaries for directory and file schema mappings
 resource_set_columns_dict = {}
 files_columns_dict = {}
-temp_directory_schemas = {}
-
 file_abs_paths = os.path.abspath(input_file_locations)
 
 def aggregate_directory_columns(path, file_type):
@@ -231,7 +229,8 @@ def process_directory(directory_path):
         if os.path.isdir(full_path):
             # Recursive call to process subdirectories
             result = process_directory(full_path)
-            local_schemas.update(result)
+            if result:
+                local_schemas.update(result)
 
     # Process files in the current directory
     for entry in os.listdir(directory_path):
@@ -239,18 +238,21 @@ def process_directory(directory_path):
         if os.path.isfile(full_path) and (entry.endswith('.csv') or entry.endswith('.parquet')):
             try:
                 df = pd.read_csv(full_path) if entry.endswith('.csv') else pd.read_parquet(full_path)
-                local_schemas[full_path] = df.columns.tolist()
+                local_schemas[os.path.basename(full_path)] = df.columns.tolist()
                 files_columns_dict[full_path] = df.columns.tolist()
             except Exception as e:
                 print(f"Could not process file {full_path}: {e}")
 
     # Consolidate and check for uniform schema across this directory
-    if all(value == local_schemas[next(iter(local_schemas))] for value in local_schemas.values()):
-        # All schemas in this directory are the same
-        return {os.path.basename(directory_path): local_schemas[next(iter(local_schemas))]}
-    else:
-        # Return individual schemas if they differ
-        return {os.path.basename(full_path): schema for full_path, schema in local_schemas.items()}
+    if local_schemas:
+        first_schema = next(iter(local_schemas.values()))
+        if all(value == first_schema for value in local_schemas.values()):
+            # All schemas in this directory are the same
+            return {os.path.basename(directory_path): first_schema}
+        else:
+            # Return individual schemas if they differ
+            return {os.path.basename(full_path): schema for full_path, schema in local_schemas.items()}
+    return {}
 
 # Start processing from the root directory
 consolidated_schemas = process_directory(file_abs_paths)
