@@ -201,9 +201,13 @@ display(validation_list)
 '''
 # COMMAND ----------
 
+import os
+import pandas as pd
+
 # Separate dictionaries for directory and file schema mappings
 resource_set_columns_dict = {}
 files_columns_dict = {}
+temp_directory_schemas = {}
 
 file_abs_paths = os.path.abspath(input_file_locations)
 
@@ -222,6 +226,9 @@ def aggregate_directory_columns(path, file_type):
 for dirpath, dirnames, filenames in os.walk(file_abs_paths):
     parent_dir_name = os.path.basename(dirpath)
 
+    # Initialize schema storage for this directory
+    temp_directory_schemas[parent_dir_name] = {}
+
     # Process directories for resource set
     for dirname in dirnames:
         directory_path = os.path.join(dirpath, dirname)
@@ -231,9 +238,19 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
             try:
                 columns = aggregate_directory_columns(directory_path, file_type)
                 if columns:
-                    resource_set_columns_dict[subdirectory_key] = columns
+                    temp_directory_schemas[parent_dir_name][subdirectory_key] = columns
             except Exception as e:
                 print(f"Could not process {file_type} files in directory {directory_path}: {e}")
+
+    # Finalize schema entries for this directory
+    all_schemas = set(tuple(schema) for schema in temp_directory_schemas[parent_dir_name].values())
+    if len(all_schemas) == 1:
+        # All subdirectories have the same schema
+        resource_set_columns_dict[parent_dir_name] = next(iter(all_schemas))
+    else:
+        # Multiple different schemas exist
+        for key, schema in temp_directory_schemas[parent_dir_name].items():
+            resource_set_columns_dict[key] = schema
 
     # Process individual files
     for file in filenames:
@@ -256,7 +273,7 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
 validation_list_resource_set = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in resource_set_columns_dict.items()]))
 validation_list_files = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
 
-# Display the DataFrames (for verification, you might want to remove or comment these lines in production)
+# Display the DataFrames
 print("Validation List - Resource Set:")
 display(validation_list_resource_set)
 print("Validation List - Files:")
