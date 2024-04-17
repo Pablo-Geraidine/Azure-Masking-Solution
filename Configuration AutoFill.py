@@ -201,9 +201,6 @@ display(validation_list)
 '''
 # COMMAND ----------
 
-import os
-import pandas as pd
-
 # Separate dictionaries for directory and file schema mappings
 resource_set_columns_dict = {}
 files_columns_dict = {}
@@ -222,52 +219,48 @@ def aggregate_directory_columns(path, file_type):
         return df.columns.tolist()
     return None
 
-# Walk through all files and directories under the input_file_location
-for dirpath, dirnames, filenames in os.walk(file_abs_paths):
-    parent_dir_name = os.path.basename(dirpath)
-
+def process_directory(directory_path):
+    """ Recursively process directories and files to aggregate schema information """
     # Initialize schema storage for this directory
-    temp_directory_schemas[parent_dir_name] = {}
+    temp_directory_schemas[directory_path] = {}
 
     # Process directories for resource set
-    for dirname in dirnames:
-        directory_path = os.path.join(dirpath, dirname)
-        subdirectory_key = os.path.join(parent_dir_name, dirname)
-        # Process each file type separately to handle possible different schemas
-        for file_type in ['.csv', '.parquet']:
-            try:
-                columns = aggregate_directory_columns(directory_path, file_type)
-                if columns:
-                    temp_directory_schemas[parent_dir_name][subdirectory_key] = columns
-            except Exception as e:
-                print(f"Could not process {file_type} files in directory {directory_path}: {e}")
+    for dirname in os.listdir(directory_path):
+        subdirectory_path = os.path.join(directory_path, dirname)
+        if os.path.isdir(subdirectory_path):
+            process_directory(subdirectory_path)
+            temp_directory_schemas[directory_path].update(temp_directory_schemas[subdirectory_path])
 
-    # Finalize schema entries for this directory
-    all_schemas = set(tuple(schema) for schema in temp_directory_schemas[parent_dir_name].values())
+    # Process files in the current directory
+    for file_name in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, file_name)
+        if os.path.isfile(file_path):
+            try:
+                df = None
+                if file_name.endswith('.csv'):
+                    df = pd.read_csv(file_path)
+                elif file_name.endswith('.parquet'):
+                    df = pd.read_parquet(file_path)
+
+                if df is not None:
+                    files_columns_dict[file_path] = df.columns.tolist()
+                    temp_directory_schemas[directory_path][file_path] = df.columns.tolist()
+
+            except Exception as e:
+                print(f"Could not process file {file_path}: {e}")
+
+    # Check if all subdirectories have the same schema
+    all_schemas = set(tuple(schema) for schema in temp_directory_schemas[directory_path].values())
     if len(all_schemas) == 1:
         # All subdirectories have the same schema
-        resource_set_columns_dict[parent_dir_name] = next(iter(all_schemas))
+        resource_set_columns_dict[directory_path] = next(iter(all_schemas))
     else:
         # Multiple different schemas exist
-        for key, schema in temp_directory_schemas[parent_dir_name].items():
+        for key, schema in temp_directory_schemas[directory_path].items():
             resource_set_columns_dict[key] = schema
 
-    # Process individual files
-    for file in filenames:
-        file_path = os.path.join(dirpath, file)
-        try:
-            df = None
-            if file.endswith('.csv'):
-                df = pd.read_csv(file_path)
-            elif file.endswith('.parquet'):
-                df = pd.read_parquet(file_path)
-
-            if df is not None:
-                file_key = os.path.join(parent_dir_name, file)
-                files_columns_dict[file_key] = df.columns.tolist()
-
-        except Exception as e:
-            print(f"Could not process file {file_path}: {e}")
+# Start processing from the top-level directory
+process_directory(file_abs_paths)
 
 # Convert dictionaries to DataFrames
 validation_list_resource_set = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in resource_set_columns_dict.items()]))
