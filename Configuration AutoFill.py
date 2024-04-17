@@ -201,6 +201,9 @@ display(validation_list)
 '''
 # COMMAND ----------
 
+import os
+import pandas as pd
+
 # Separate dictionaries for directory and file schema mappings
 resource_set_columns_dict = {}
 files_columns_dict = {}
@@ -221,46 +224,38 @@ def aggregate_directory_columns(path, file_type):
 
 def process_directory(directory_path):
     """ Recursively process directories and files to aggregate schema information """
-    # Initialize schema storage for this directory
-    temp_directory_schemas[directory_path] = {}
-
-    # Process directories for resource set
-    for dirname in os.listdir(directory_path):
-        subdirectory_path = os.path.join(directory_path, dirname)
-        if os.path.isdir(subdirectory_path):
-            process_directory(subdirectory_path)
-            temp_directory_schemas[directory_path].update(temp_directory_schemas[subdirectory_path])
+    local_schemas = {}
+    # Process directories recursively
+    for entry in os.listdir(directory_path):
+        full_path = os.path.join(directory_path, entry)
+        if os.path.isdir(full_path):
+            # Recursive call to process subdirectories
+            result = process_directory(full_path)
+            local_schemas.update(result)
 
     # Process files in the current directory
-    for file_name in os.listdir(directory_path):
-        file_path = os.path.join(directory_path, file_name)
-        if os.path.isfile(file_path):
+    for entry in os.listdir(directory_path):
+        full_path = os.path.join(directory_path, entry)
+        if os.path.isfile(full_path) and (entry.endswith('.csv') or entry.endswith('.parquet')):
             try:
-                df = None
-                if file_name.endswith('.csv'):
-                    df = pd.read_csv(file_path)
-                elif file_name.endswith('.parquet'):
-                    df = pd.read_parquet(file_path)
-
-                if df is not None:
-                    files_columns_dict[file_path] = df.columns.tolist()
-                    temp_directory_schemas[directory_path][file_path] = df.columns.tolist()
-
+                df = pd.read_csv(full_path) if entry.endswith('.csv') else pd.read_parquet(full_path)
+                local_schemas[full_path] = df.columns.tolist()
+                files_columns_dict[full_path] = df.columns.tolist()
             except Exception as e:
-                print(f"Could not process file {file_path}: {e}")
+                print(f"Could not process file {full_path}: {e}")
 
-    # Check if all subdirectories have the same schema
-    all_schemas = set(tuple(schema) for schema in temp_directory_schemas[directory_path].values())
-    if len(all_schemas) == 1:
-        # All subdirectories have the same schema
-        resource_set_columns_dict[directory_path] = next(iter(all_schemas))
+    # Consolidate and check for uniform schema across this directory
+    if all(value == local_schemas[next(iter(local_schemas))] for value in local_schemas.values()):
+        # All schemas in this directory are the same
+        return {os.path.basename(directory_path): local_schemas[next(iter(local_schemas))]}
     else:
-        # Multiple different schemas exist
-        for key, schema in temp_directory_schemas[directory_path].items():
-            resource_set_columns_dict[key] = schema
+        # Return individual schemas if they differ
+        return {os.path.basename(full_path): schema for full_path, schema in local_schemas.items()}
 
-# Start processing from the top-level directory
-process_directory(file_abs_paths)
+# Start processing from the root directory
+consolidated_schemas = process_directory(file_abs_paths)
+for k, v in consolidated_schemas.items():
+    resource_set_columns_dict[k] = v
 
 # Convert dictionaries to DataFrames
 validation_list_resource_set = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in resource_set_columns_dict.items()]))
@@ -271,7 +266,6 @@ print("Validation List - Resource Set:")
 display(validation_list_resource_set)
 print("Validation List - Files:")
 display(validation_list_files)
-
 
 # COMMAND ----------
 
