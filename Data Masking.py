@@ -98,8 +98,9 @@ print(f"Project: {project_definition}")
 
 if project_definition == 'Test Project 1':
   #Enter missing locations once ADLS2 account created
-  masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook.xlsx'
+  masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook.xlsm'
   masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
+  reference_filename_mapping = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Reference Filename Mapping.csv'
 elif project_definition == 'Test Project 2':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = ''
@@ -393,6 +394,20 @@ display(df_mask_def_values)
 
 # COMMAND ----------
 
+reference_filename_mapping_df = pd.read_csv(reference_filename_mapping)
+display(reference_filename_mapping_df)
+
+# COMMAND ----------
+
+df_mask_def_values2 = pd.merge(df_mask_def_values, reference_filename_mapping_df, left_on='Table', right_on='Modified', how='left')
+display(df_mask_def_values2)
+
+df_mask_def_values['Table'] = df_mask_def_values2['Original'].fillna(df_mask_def_values2['Table'])
+
+display(df_mask_def_values)
+
+# COMMAND ----------
+
 # Create file directory_path_df, a DataFrame that references all files to be masked, and their respective absolute paths, relative paths to the input_files location, the highest level directory they belong to after the path defined by input_files, and ultimately the file name for each.
 
 all_paths = os.path.abspath(input_path)
@@ -416,7 +431,7 @@ for dirpath, dirnames, filenames in os.walk(all_paths):
         all_relative_paths.append(relative_path)
         data.append({"full path": full_path, "relative path": relative_path, "highest level directory": highest_level_directory, "file name": filename})
     file_directory_path_df = pd.DataFrame(data)
-    display(file_directory_path_df)
+display(file_directory_path_df)
 
 # COMMAND ----------
 
@@ -460,6 +475,10 @@ def apply_masking(data_extract, var_file, relative_path, filename, full_director
 
 # COMMAND ----------
 
+print(all_files)
+
+# COMMAND ----------
+
 # Itterate over each file for masking, call upon the apply_masking function, and save the files to the defined output location
 
 try:
@@ -470,7 +489,7 @@ except:
 masked_values  = dict([a,b] for a,b in zip(df_masked_values['Original'], df_masked_values['Masked Values']))
 lookup_table = {"Original": [], "Masked values": []}
 data_extract = pd.DataFrame()
-files = [f for f in all_files]
+files = [f for f in file_directory_path_df['full path'] if file_directory_path_df['full path']]
 num_files = 0
 for j in files:
     if j.endswith('.csv'):
