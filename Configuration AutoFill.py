@@ -54,7 +54,7 @@ else:
 # COMMAND ----------
 
 #dbutils.widgets.removeAll()
-dbutils.widgets.dropdown("Project", "Test Project 1", ['Test Project 1', 'Test Project 2'])
+dbutils.widgets.dropdown("Project", "Project Intake", ['Project Intake', 'Test Project 1'])
 
 # COMMAND ----------
 
@@ -62,17 +62,20 @@ dbutils.widgets.dropdown("Project", "Test Project 1", ['Test Project 1', 'Test P
 
 project_definition = dbutils.widgets.get("Project")
 print(f"Project: {project_definition}")
-mount_point_path = '/dbfs/mnt/masking_config/Test Project 1/'
+mount_point_path = '/dbfs/mnt/masking_config/Project Intake/'
 
+
+#Enter missing locations once ADLS2 account created
+masking_rules_location = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook - blank -macro.xlsm'
+#masking_rules_location_no_macro = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook - blank.xlsx'
+new_excel_path = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook Modified.xlsm'
+#new_excel_path_no_macro = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook Modified.xlsx'
+local_path = "/tmp/Configurable Masking Rulebook Modified.xlsm"
+#copyfile(masking_rules_location, new_excel_path)
+#masking_dictionary_location = '/dbfs/mnt/masking_config/Project Intake/mask_dictionary.csv'
 if project_definition == 'Test Project 1':
-  #Enter missing locations once ADLS2 account created
-  masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook - blank -macro.xlsm'
-  #masking_rules_location_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook - blank.xlsx'
-  new_excel_path = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook Modified.xlsm'
-  #new_excel_path_no_macro = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook Modified.xlsx'
-  local_path = "/tmp/Configurable Masking Rulebook Modified.xlsm"
-  #copyfile(masking_rules_location, new_excel_path)
-  #masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
+  configurable_masking_rulebook = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Configurable Masking Rulebook Template.xlsm'
+  reference_filename_mapping = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Reference Filename Mapping.csv'
 elif project_definition == 'Test Project 2':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = ''
@@ -153,9 +156,14 @@ display(validation_list)
 
 # COMMAND ----------
 
-'''
 
+
+# This dictionary will match each file and resource set to its column names
 files_columns_dict = {}
+
+# This dictionary will determine if an asset is a file or a resource set. This distinction will be needed in the masking script. Will be converted to dataframe and added as a sheet in the configurable input file
+file_directory_mapping = {'Resource_Set': [], 'File': []}
+
 file_abs_paths = os.path.abspath(input_file_locations)
 
 # Walk through all files and directories under the input_file_location
@@ -163,18 +171,22 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
     # Process each directory of files
     for dirname in dirnames:
         directory_path = os.path.join(dirpath, dirname)
+        directory_relative_path = os.path.relpath(directory_path, input_file_locations)
+        print(directory_relative_path)
         try:
             # Attempt to read all CSV files in the directory into a DataFrame
             csv_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if f.endswith('.csv')]
             if csv_files:
                 df = pd.concat([pd.read_csv(f) for f in csv_files], ignore_index=True)
-                files_columns_dict[dirname] = df.columns.tolist()
+                files_columns_dict[directory_relative_path] = df.columns.tolist()
+                file_directory_mapping['Resource_Set'].append(directory_relative_path)
 
             # Attempt to read all Parquet files in the directory into a DataFrame
             parquet_files = [os.path.join(directory_path, f) for f in os.listdir(directory_path) if f.endswith('.parquet')]
             if parquet_files:
                 df = pd.read_parquet(directory_path)  # Reading from a directory directly
-                files_columns_dict[dirname] = df.columns.tolist()
+                files_columns_dict[directory_relative_path] = df.columns.tolist()
+                file_directory_mapping['Resource_Set'].append(directory_relative_path)
 
         except Exception as e:
             print(f"Could not process directory {directory_path}: {e}")
@@ -183,6 +195,8 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
     for file in filenames:
         try:
             path = os.path.join(dirpath, file)
+            file_relative_path = os.path.relpath(path, input_file_locations)
+            print(f' File relative path: {file_relative_path}')
             df = None
             if file.endswith('.csv'):
                 df = pd.read_csv(path)
@@ -190,7 +204,8 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
                 df = pd.read_parquet(path)
 
             if df is not None:
-                files_columns_dict[file] = df.columns.tolist()
+                files_columns_dict[file_relative_path] = df.columns.tolist()
+                file_directory_mapping['File'].append(file_relative_path)
 
         except Exception as e:
             print(f"Could not process file {path}: {e}")
@@ -198,9 +213,11 @@ for dirpath, dirnames, filenames in os.walk(file_abs_paths):
 # Convert the dictionary to a DataFrame for better visualization
 validation_list = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in files_columns_dict.items()]))
 display(validation_list)
-'''
+
+
 # COMMAND ----------
 
+'''
 import os
 import pandas as pd
 
@@ -268,39 +285,122 @@ print("Validation List - Resource Set:")
 display(validation_list_resource_set)
 print("Validation List - Files:")
 display(validation_list_files)
+'''
 
 # COMMAND ----------
 
-# Create a dictionary to map modified column names bacl to their original colun names - to be used to revert column names eventually
+'''
+original_to_modified_dict = {'Original': [], 'Modified': []}
+for entry in validation_list.columns:
+    original_to_modified_dict['Original'].append(entry)
+    original_to_modified_dict['Modified'].append(entry.replace(' ', '_').replace('-', '_'))
+print(original_to_modified_dict)
+original_to_modified_df = pd.DataFrame(original_to_modified_dict)
+display(original_to_modified_df)
+original_to_modified_df.to_csv(reference_filename_mapping, index=False)
+'''
+
+# COMMAND ----------
+
+#validation_list.columns = validation_list.columns.str.replace(' |-', '_', regex=True)
+
+# COMMAND ----------
+
+print(file_directory_mapping)
+
+# COMMAND ----------
+
+file_directory_mapping_df = pd.DataFrame.from_dict(file_directory_mapping, orient='index').transpose()
+display(file_directory_mapping_df)
+#df = pd.DataFrame.from_dict(data, orient='index').transpose()
+
+# COMMAND ----------
+
+'''# Create a dictionary to map modified column names bacl to their original colun names - to be used to revert column names eventually
 original_to_modified = {name: name.replace(' ', '_').replace('-', '_') for name in validation_list.columns}
 
 # Remove whitespaces and dashes from the filenames so that VBA macros can still work
 validation_list.columns = validation_list.columns.str.replace(' |-', '_', regex=True)
-for column in validation_list.columns:
-    print(column)
-for i in original_to_modified:
-    print(original_to_modified[i])
+#for column in validation_list.columns:
+    #print(column)
+#for i in original_to_modified:
+    #print(original_to_modified[i])
+print(original_to_modified)
+#original_to_modified_df = pd.DataFrame(original_to_modified)
+#display(original_to_modified_df)
+'''
+
+# COMMAND ----------
+
+# Create file directory_path_df, a DataFrame that references all files that can be masked, and their respective absolute paths, relative paths to the input_files location, the highest level directory they belong to after the path defined by input_files, and ultimately the file name for each.
+
+all_paths = os.path.abspath(input_file_locations)
+all_files = []
+all_tables = []
+all_relative_paths = []
+data = []
+
+for dirpath, dirnames, filenames in os.walk(all_paths):
+    for filename in filenames:
+        full_path = os.path.join(dirpath, filename)
+        relative_path = os.path.relpath(dirpath, all_paths)
+        highest_level_directory = relative_path.split(os.sep)[0]
+
+        # Replace "highest level directory" with "file name" (minus extension) in instances where the table for masking is not a subdirectory that represents tables of same schema, but is instead a file directly below the directory defined as the input_path as a standalone file by itself. 
+        if dirpath == all_paths:
+            highest_level_directory, extension = filename.split('.')
+        
+        all_files.append(full_path)
+        all_tables.append(highest_level_directory)
+        all_relative_paths.append(relative_path)
+        data.append({"full path": full_path, "relative path": relative_path, "highest level directory": highest_level_directory, "file name": filename})
+    file_directory_path_df = pd.DataFrame(data)
+display(file_directory_path_df)
 
 # COMMAND ----------
 
 # Load workbook
 copyfile(masking_rules_location, local_path)
 wb = load_workbook(local_path, keep_vba=True)
-file_mapping_sheet = wb['file mapping']
+config1_sheet = wb['config1'] #Config 1 sheet maps which resources are Resource Sets vs individual files
+config2_sheet = wb['config2'] #Config 2 sheet maps resources with tabular data structures to their column names
+#walk_sheet = wb['walk']
 sheet1 = wb['Masking Definition']
 
-# Clear existing data in 'file mapping'
-for row in file_mapping_sheet.iter_rows(min_row=1, max_row=file_mapping_sheet.max_row, min_col=1, max_col=file_mapping_sheet.max_column):
+# Clear existing data in 'config 2'
+for row in config2_sheet.iter_rows(min_row=1, max_row=config2_sheet.max_row, min_col=1, max_col=config2_sheet.max_column):
     for cell in row:
         cell.value = None
 
-# Write validation_list dataframe to 'file mapping'
+# Write validation_list dataframe to 'config 2'
 for r_idx, row in enumerate(dataframe_to_rows(validation_list, index=False, header=True), start=1):
     for c_idx, value in enumerate(row, start=1):
-        file_mapping_sheet.cell(row=r_idx, column=c_idx, value=value)
+        config2_sheet.cell(row=r_idx, column=c_idx, value=value)
+'''
+# Clear existing data in 'walk'
+for row in walk_sheet.iter_rows(min_row=1, max_row=walk_sheet.max_row, min_col=1, max_col=walk_sheet.max_column):
+    for cell in row:
+        cell.value = None
 
-# Create Data Validation for sheet1. Formula: Reference first row in 'file mapping' sheet
-dv = DataValidation(type='list', formula1="'file mapping'!$1:$1", showDropDown=False)
+# Write validation_list dataframe to 'walk'
+for r_idx, row in enumerate(dataframe_to_rows(file_directory_path_df, index=False, header=True), start=1):
+    for c_idx, value in enumerate(row, start=1):
+        walk_sheet.cell(row=r_idx, column=c_idx, value=value)
+'''
+
+# Clear existing data in 'config 1'
+for row in config1_sheet.iter_rows(min_row=1, max_row=config1_sheet.max_row, min_col=1, max_col=config1_sheet.max_column):
+    for cell in row:
+        cell.value = None
+
+# Write validation_list dataframe to 'config 1'
+for r_idx, row in enumerate(dataframe_to_rows(file_directory_mapping_df, index=False, header=True), start=1):
+    for c_idx, value in enumerate(row, start=1):
+        config1_sheet.cell(row=r_idx, column=c_idx, value=value)
+
+
+# Create Data Validation for sheet1. Formula: Reference first row in 'config 2' sheet
+dv = DataValidation(type='list', formula1="'config1'!$1:$1", showDropDown=False)
 sheet1.add_data_validation(dv)
 
 # Apply data validation to column A in sheet1
@@ -308,8 +408,9 @@ for row in range(1, sheet1.max_row + 1):
     dv.add(sheet1.cell(row=row, column=1))
     #sheet1.cell(row=row, column=3).value=f'=IF(ISBLANK(A{row}), "", A{row})'
 
+
 wb.save(local_path)
-copyfile(local_path, new_excel_path)
+copyfile(local_path, configurable_masking_rulebook)
 
 # COMMAND ----------
 
@@ -331,3 +432,7 @@ def seconds_to_time(seconds):
 
     return formatted_time
 print(f'Total Runtime: {seconds_to_time(runtime)}')
+
+# COMMAND ----------
+
+

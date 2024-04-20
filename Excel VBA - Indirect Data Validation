@@ -1,32 +1,32 @@
 Private Sub Workbook_Open()
     Dim ws As Worksheet
-    Set ws = ThisWorkbook.Sheets("file mapping")
-    Dim mappingSheet As Worksheet
-    Set mappingSheet = ThisWorkbook.Sheets("file mapping")
+    Dim headerCell As Range
+    Dim lastRow As Long
+    Dim namedRange As Range
+    Dim rangeName As String
     
-    ' Delete all previous named ranges (optional, might be needed)
-    Dim nm As Name
-    For Each nm In ThisWorkbook.Names
-        nm.Delete
-    Next nm
+    ' Process config1 sheet
+    Set ws = Sheets("config1")
+    For Each headerCell In ws.Range("A1", ws.Cells(1, ws.Cells(1, Columns.Count).End(xlToLeft).Column))
+        lastRow = ws.Cells(ws.Rows.Count, headerCell.Column).End(xlUp).Row
+        Set namedRange = ws.Range(headerCell.Offset(1, 0), ws.Cells(lastRow, headerCell.Column))
+        rangeName = Replace(headerCell.Value, " ", "_") ' Replace spaces with underscores
+        ThisWorkbook.Names.Add Name:=rangeName, RefersTo:=namedRange
+    Next headerCell
     
-    ' Create named ranges based on 'file mapping' sheet
-    Dim lastRow As Long, i As Long
-    For i = 1 To mappingSheet.Cells(1, Columns.Count).End(xlToLeft).Column
-        Dim header As String
-        header = mappingSheet.Cells(1, i).Value
-        lastRow = mappingSheet.Cells(Rows.Count, i).End(xlUp).Row
-        
-        ' Skip if header is empty
-        If header <> "" Then
-            ' Create the named range
-            Dim rangeString As String
-            rangeString = "=" & "'" & mappingSheet.Name & "'" & "!" & "$" & mappingSheet.Cells(2, i).Address(RowAbsolute:=True, ColumnAbsolute:=False) & ":" & "$" & mappingSheet.Cells(lastRow, i).Address(RowAbsolute:=True, ColumnAbsolute:=False)
-            ThisWorkbook.Names.Add Name:=Replace(header, ".csv", ""), RefersTo:=rangeString
-        End If
-    Next i
-    
-    ' Now set up the data validation using the INDIRECT function for each named range
-    ' This part would be similar but would reference the named ranges you've just created
-    ' and apply data validation rules to the appropriate cells in your main data entry sheet
+    ' Process config2 sheet
+    Set ws = Sheets("config2")
+    For Each headerCell In ws.Range("A1", ws.Cells(1, ws.Cells(1, Columns.Count).End(xlToLeft).Column))
+        lastRow = ws.Cells(ws.Rows.Count, headerCell.Column).End(xlUp).Row
+        Set namedRange = ws.Range(headerCell.Offset(1, 0), ws.Cells(lastRow, headerCell.Column))
+        rangeName = Replace(headerCell.Value, " ", "_") ' Replace spaces with underscores
+        rangeName = Replace(rangeName, "#", "_")
+        rangeName = Replace(rangeName, ".", "_")
+        rangeName = Replace(rangeName, "-", "_")
+        rangeName = Replace(rangeName, "(", "_")
+        rangeName = Replace(rangeName, ")", "_")
+        rangeName = Replace(rangeName, "/", "_")
+        ThisWorkbook.Names.Add Name:=rangeName, RefersTo:=namedRange
+    Next headerCell
 End Sub
+
