@@ -98,9 +98,9 @@ print(f"Project: {project_definition}")
 
 if project_definition == 'Test Project 1':
   #Enter missing locations once ADLS2 account created
-  masking_rules_location = '/dbfs/mnt/masking_config/Test Project 1/Configurable Masking Rulebook.xlsm'
-  masking_dictionary_location = '/dbfs/mnt/masking_config/Test Project 1/mask_dictionary.csv'
-  reference_filename_mapping = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Reference Filename Mapping.csv'
+  masking_rules_location = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Configurable Masking Rulebook.xlsm'
+  masking_dictionary_location = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} mask_dictionary.csv'
+  #reference_filename_mapping = f'/dbfs/mnt/masking_config/Test Project 1/{project_definition} Reference Filename Mapping.csv'
 elif project_definition == 'Test Project 2':
   #Enter missing locations once ADLS2 account created
   masking_rules_location = ''
@@ -394,17 +394,21 @@ display(df_mask_def_values)
 
 # COMMAND ----------
 
+'''
 reference_filename_mapping_df = pd.read_csv(reference_filename_mapping)
 display(reference_filename_mapping_df)
+'''
 
 # COMMAND ----------
 
+'''
 df_mask_def_values2 = pd.merge(df_mask_def_values, reference_filename_mapping_df, left_on='Table', right_on='Modified', how='left')
 display(df_mask_def_values2)
 
 df_mask_def_values['Table'] = df_mask_def_values2['Original'].fillna(df_mask_def_values2['Table'])
 
 display(df_mask_def_values)
+'''
 
 # COMMAND ----------
 
@@ -443,6 +447,8 @@ def apply_masking(data_extract, var_file, relative_path, filename, full_director
     print(f'Absolute file path: {i}')
     print(f'Schema: {var_file}')
     newdf = df_mask_def_values[df_mask_def_values['Table'] == var_file]
+    print("DISPLAYING NEWDF")
+    display(newdf)
     mask_attr = newdf.Attribute.to_list()
     print(f"Attributes for masking: {mask_attr}\n")
     if len(mask_attr) == 0:
@@ -465,7 +471,7 @@ def apply_masking(data_extract, var_file, relative_path, filename, full_director
     df_output = data_extract
 
     # Construct the full directory path where the masked file will be saved
-    full_directory_path = os.path.join(output_path, relative_path)
+    full_directory_path = file_top_level_directory
 
     # Ensure the directory path exists
     os.makedirs(full_directory_path, exist_ok=True)
@@ -479,6 +485,141 @@ print(all_files)
 
 # COMMAND ----------
 
+# Join the values from the Table column of df_mask_def_values with input_path and output_path
+#input_path = input_file_locations
+#output_path = output_file_locations
+display(df_mask_def_values)
+
+# COMMAND ----------
+
+newdf = df_mask_def_values[df_mask_def_values['Table'] == 'Directory 4/Directory 4_1/Dataset_Python_Question_Answer2.csv'
+]
+display(newdf)
+
+# COMMAND ----------
+
+# Test cell to replace final cell
+
+try:
+    df_masked_values = pd.read_csv(mask_map_table_path)
+except:
+    df_masked_values = pd.DataFrame({"Original": [], "Masked Values": []})
+
+masked_values  = dict([a,b] for a,b in zip(df_masked_values['Original'], df_masked_values['Masked Values']))
+lookup_table = {"Original": [], "Masked values": []}
+data_extract = pd.DataFrame()
+files = df_mask_def_values.loc[df_mask_def_values['Resource Type'] == 'File', "Table"]
+for f in files:
+    dataframes = []
+    print(f)
+resource_sets = df_mask_def_values.loc[df_mask_def_values['Resource Type'] == 'Resource_Set', "Table"]
+for r in resource_sets:
+    dataframes = []
+    print(r)
+num_files = 0
+
+# Handling for lone files ---------------------------------------------------------------------------------------------------------------
+for f in files:
+    if f.endswith('.csv'):
+        num_files += 1
+    elif f.endswith('.parquet'):
+        num_files += 1
+    print(f'f: {f}')
+
+    
+    # Construct the full directory path where the masked file will read from and written to
+    full_input_path = input_path + '/' + f
+    full_output_path = output_path + '/' + f
+    print(f"Read location: {full_input_path}")
+    print(f"Write location: {full_output_path}")
+
+    i = full_input_path
+    print(f'i: {i}')
+    var_file = f
+    print(f'var_file: {var_file}')
+
+    # Recreate the directory structure in the output location: For file currently being processed, verify if the same directory structure exists in the output location, if not, create it
+    # Find the last occurrence of '/'
+    last_slash_index = full_output_path.rfind('/')
+    # Slice the string to exclude everything after the last '/'
+    file_top_level_directory = full_output_path[:last_slash_index]
+    os.makedirs(file_top_level_directory, exist_ok=True)
+    print(f'directory created: {file_top_level_directory}')
+
+    # Apply masking to parquet files
+    if f.endswith('.parquet'):
+        data_extract = pd.read_parquet(f"{full_input_path}")
+        try:
+            df_output = apply_masking(data_extract, full_input_path, relative_path, filename, full_output_path, df_mask_def_values)
+            df_output.to_parquet(full_output_path, index=False)
+        except:
+            pass
+    
+    # Apply masking to csv files
+    if f.endswith('.csv'):
+        data_extract = pd.read_csv(f"{full_input_path}")
+        display(data_extract)
+        try:
+            df_output = apply_masking(data_extract, var_file, relative_path, filename, full_output_path, df_mask_def_values)
+            df_output.to_csv(full_output_path, index=False)
+            print(f"Obfuscation complete!")
+        except Exception as e:
+            print(f"Could not process directory {f}: {e}")
+            pass
+
+# Handling for resource sets ------------------------------------------------------------------------------------------------------------
+for r in resource_sets:
+    print(f'r: {r}')
+    full_input_path = input_path + '/' + r
+    full_output_path = output_path + '/' + r
+    print(f'full input location: {full_input_path}')
+    for dirpath, dirnames, filenames in os.walk(full_input_path):
+        for file in filenames:
+            full_path = os.path.join(dirpath, file)
+            file_input_path = full_path
+            file_output_path = output_path + '/' + r + '/' + file
+            print(f'file from r: {file_input_path}')
+            print(f'file write location from r: {file_output_path}')
+            full_input_path = file_input_path
+            full_output_path = file_output_path
+            f = file
+            i = full_input_path
+            print(f'i: {i}')
+            var_file = r
+            print(f'var_file: {var_file}')
+
+            # Recreate the directory structure in the output location: For file currently being processed, verify if the same directory structure exists in the output location, if not, create it
+            # Find the last occurrence of '/'
+            last_slash_index = full_output_path.rfind('/')
+            # Slice the string to exclude everything after the last '/'
+            file_top_level_directory = full_output_path[:last_slash_index]
+            os.makedirs(file_top_level_directory, exist_ok=True)
+            print(f'directory created: {file_top_level_directory}')
+
+            # Apply masking to parquet files
+            if f.endswith('.parquet'):
+                data_extract = pd.read_parquet(f"{full_input_path}")
+                try:
+                    df_output = apply_masking(data_extract, full_input_path, relative_path, filename, full_output_path, df_mask_def_values)
+                    df_output.to_parquet(full_output_path, index=False)
+                except:
+                    pass
+            
+            # Apply masking to csv files
+            if f.endswith('.csv'):
+                data_extract = pd.read_csv(f"{full_input_path}")
+                display(data_extract)
+                try:
+                    df_output = apply_masking(data_extract, var_file, relative_path, filename, full_output_path, df_mask_def_values)
+                    df_output.to_csv(full_output_path, index=False)
+                    print(f"Obfuscation complete!")
+                except Exception as e:
+                    print(f"Could not process directory {f}: {e}")
+                    pass
+
+# COMMAND ----------
+
+'''
 # Itterate over each file for masking, call upon the apply_masking function, and save the files to the defined output location
 
 try:
@@ -540,6 +681,7 @@ for i in files:
 metadata_val = {"Original":list(masked_values.keys()), "Masked Values":list(masked_values.values())}
 df_metadata = pd.DataFrame.from_dict(metadata_val)
 df_metadata.to_csv(mask_map_table_path, index=False)
+'''
 
 # COMMAND ----------
 
