@@ -66,7 +66,7 @@ mount_point_path = '/dbfs/mnt/masking_config/Project Intake/'
 
 
 #Enter missing locations once ADLS2 account created
-masking_rules_location = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook - blank -macro - enhanced.xlsm'
+masking_rules_location = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook - blank -macro.xlsm'
 #masking_rules_location_no_macro = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook - blank.xlsx'
 new_excel_path = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook Modified.xlsm'
 #new_excel_path_no_macro = '/dbfs/mnt/masking_config/Project Intake/Configurable Masking Rulebook Modified.xlsx'
@@ -289,6 +289,7 @@ display(validation_list_files)
 
 # COMMAND ----------
 
+'''
 original_to_modified_dict = {'Original': [], 'Modified': []}
 for entry in validation_list.columns:
     original_to_modified_dict['Original'].append(entry)
@@ -297,10 +298,11 @@ print(original_to_modified_dict)
 original_to_modified_df = pd.DataFrame(original_to_modified_dict)
 display(original_to_modified_df)
 original_to_modified_df.to_csv(reference_filename_mapping, index=False)
+'''
 
 # COMMAND ----------
 
-validation_list.columns = validation_list.columns.str.replace(' |-', '_', regex=True)
+#validation_list.columns = validation_list.columns.str.replace(' |-', '_', regex=True)
 
 # COMMAND ----------
 
@@ -360,21 +362,21 @@ display(file_directory_path_df)
 # Load workbook
 copyfile(masking_rules_location, local_path)
 wb = load_workbook(local_path, keep_vba=True)
-file_mapping_sheet = wb['file mapping']
-file_directory_mapping_sheet = wb['file directory mapping']
-walk_sheet = wb['walk']
+config1_sheet = wb['config1'] #Config 1 sheet maps which resources are Resource Sets vs individual files
+config2_sheet = wb['config2'] #Config 2 sheet maps resources with tabular data structures to their column names
+#walk_sheet = wb['walk']
 sheet1 = wb['Masking Definition']
 
-# Clear existing data in 'file mapping'
-for row in file_mapping_sheet.iter_rows(min_row=1, max_row=file_mapping_sheet.max_row, min_col=1, max_col=file_mapping_sheet.max_column):
+# Clear existing data in 'config 2'
+for row in config2_sheet.iter_rows(min_row=1, max_row=config2_sheet.max_row, min_col=1, max_col=config2_sheet.max_column):
     for cell in row:
         cell.value = None
 
-# Write validation_list dataframe to 'file mapping'
+# Write validation_list dataframe to 'config 2'
 for r_idx, row in enumerate(dataframe_to_rows(validation_list, index=False, header=True), start=1):
     for c_idx, value in enumerate(row, start=1):
-        file_mapping_sheet.cell(row=r_idx, column=c_idx, value=value)
-
+        config2_sheet.cell(row=r_idx, column=c_idx, value=value)
+'''
 # Clear existing data in 'walk'
 for row in walk_sheet.iter_rows(min_row=1, max_row=walk_sheet.max_row, min_col=1, max_col=walk_sheet.max_column):
     for cell in row:
@@ -384,27 +386,28 @@ for row in walk_sheet.iter_rows(min_row=1, max_row=walk_sheet.max_row, min_col=1
 for r_idx, row in enumerate(dataframe_to_rows(file_directory_path_df, index=False, header=True), start=1):
     for c_idx, value in enumerate(row, start=1):
         walk_sheet.cell(row=r_idx, column=c_idx, value=value)
+'''
 
-
-# Clear existing data in 'file directory mapping'
-for row in file_directory_mapping_sheet.iter_rows(min_row=1, max_row=file_directory_mapping_sheet.max_row, min_col=1, max_col=file_directory_mapping_sheet.max_column):
+# Clear existing data in 'config 1'
+for row in config1_sheet.iter_rows(min_row=1, max_row=config1_sheet.max_row, min_col=1, max_col=config1_sheet.max_column):
     for cell in row:
         cell.value = None
 
-# Write validation_list dataframe to 'file mapping'
+# Write validation_list dataframe to 'config 1'
 for r_idx, row in enumerate(dataframe_to_rows(file_directory_mapping_df, index=False, header=True), start=1):
     for c_idx, value in enumerate(row, start=1):
-        file_directory_mapping_sheet.cell(row=r_idx, column=c_idx, value=value)
+        config1_sheet.cell(row=r_idx, column=c_idx, value=value)
 
 
-# Create Data Validation for sheet1. Formula: Reference first row in 'file mapping' sheet
-dv = DataValidation(type='list', formula1="'file mapping'!$1:$1", showDropDown=False)
+# Create Data Validation for sheet1. Formula: Reference first row in 'config 2' sheet
+dv = DataValidation(type='list', formula1="'config1'!$1:$1", showDropDown=False)
 sheet1.add_data_validation(dv)
 
 # Apply data validation to column A in sheet1
 for row in range(1, sheet1.max_row + 1):
     dv.add(sheet1.cell(row=row, column=1))
     #sheet1.cell(row=row, column=3).value=f'=IF(ISBLANK(A{row}), "", A{row})'
+
 
 wb.save(local_path)
 copyfile(local_path, configurable_masking_rulebook)
@@ -429,3 +432,7 @@ def seconds_to_time(seconds):
 
     return formatted_time
 print(f'Total Runtime: {seconds_to_time(runtime)}')
+
+# COMMAND ----------
+
+
